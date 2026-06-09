@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 from supabase import create_client, Client
 
 st.set_page_config(page_title = "PTAC Pro Tracker Console", page_icon = "/Users/mannatbaveja/hampton-ptac-tracker/hamptonlogo.png", layout = "wide")
@@ -82,3 +83,5 @@ target_page_obj = page_map[st.session_state.current_category][st.session_state.c
 
 pg = st.navigation([target_page_obj], position="hidden")
 pg.run()
+
+
