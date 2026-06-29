@@ -48,6 +48,10 @@ if"current_category" not in st.session_state:
 if "current_page" not in st.session_state:
     st.session_state.current_page = "Dashboard Grid"
 
+def clear_unit_detail_selection():
+    st.session_state.selected_ptac_id = None
+    st.query_params.clear()
+
 with nav_cols[1]:
 
     #this is the main categories (hotel operations view and contractor portal)
@@ -59,6 +63,7 @@ with nav_cols[1]:
     )
 
     if selected_category and selected_category != st.session_state.current_category:
+        clear_unit_detail_selection()
         st.session_state.current_category = selected_category
         st.session_state.current_page = list(page_map[selected_category].keys())[0]
         st.rerun()
@@ -74,6 +79,7 @@ selected_page = st.segmented_control(
 )
 
 if selected_page and selected_page != st.session_state.current_page:
+    clear_unit_detail_selection()
     st.session_state.current_page = selected_page
     st.rerun()
 
