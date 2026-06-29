@@ -3,10 +3,13 @@ import pandas as pd
 from supabase import create_client, Client
 
 st.set_page_config(page_title = "PTAC Pro Tracker Console", page_icon = "/Users/mannatbaveja/hampton-ptac-tracker/hamptonlogo.png", layout = "wide")
+
 if "supabase" not in st.session_state:
     url: str = st.secrets["supabase"]["url"]
     key: str = st.secrets["supabase"]["key"]
     supabase: Client = create_client(url, key)
+    st.session_state.supabase = supabase
+
 
 #moving navigation to the top
 nav_cols = st.columns([1.5, 3.5])
@@ -80,3 +83,5 @@ target_page_obj = page_map[st.session_state.current_category][st.session_state.c
 
 pg = st.navigation([target_page_obj], position="hidden")
 pg.run()
+
+
