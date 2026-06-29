@@ -1,27 +1,21 @@
 import streamlit as st
-from supabase import create_client
 
-# ==============================================================================
-# 🔑 SECURITY HANDSHAKE (FAILSAFE GATEWAY)
-# ==============================================================================
-if "supabase" not in st.session_state:
-    url = st.secrets["supabase"]["url"]
-    key = st.secrets["supabase"]["key"]
-    st.session_state.supabase = create_client(url, key)
+from views._shared import btu_from_model, display_status, fetch_units, next_ptac_id
+from views.unit_detail import get_selected_ptac_id, render_unit_detail
+
 
 supabase = st.session_state.supabase
 
-# ==============================================================================
-# 🗄️ CLOUD FETCH LAYER
-# ==============================================================================
-all_units_response = supabase.table("ptac_units").select(
-    "ptac_id, serial_number, model_specs, current_location_name, location_type, status, last_pm_date"
-).order("ptac_id").execute()
-all_units = all_units_response.data or []
 
-# ==============================================================================
-# 🎨 CUSTOM STYLING SHEET Injection
-# ==============================================================================
+# Pull the inventory fields needed for the directory table.
+# No new table is needed for this page: these columns already live in ptac_units.
+all_units = fetch_units()
+
+if get_selected_ptac_id():
+    render_unit_detail()
+    st.stop()
+
+
 st.markdown(
     """
     <style>
@@ -67,7 +61,6 @@ st.markdown(
         border-radius: 18px;
         overflow: hidden;
         box-shadow: 0 1px 3px rgba(15, 23, 42, .04);
-        padding-bottom: 10px;
     }
 
     .directory-header {
@@ -79,11 +72,6 @@ st.markdown(
         font-weight: 950;
         text-transform: uppercase;
         letter-spacing: .08em;
-        text-align: center;
-    }
-    
-    .directory-header-left {
-        text-align: left !important;
     }
 
     .directory-row {
@@ -92,20 +80,17 @@ st.markdown(
         display: flex;
         flex-direction: column;
         justify-content: center;
-    }
-    
-    /* Enforces text elements to center cleanly within data grid fields */
-    .directory-row-center {
-        align-items: center !important;
-        text-align: center !important;
+        align-items: flex-start;
     }
 
-    .directory-separator {
-        border: none;
-        height: 1px;
-        background-color: #e2e8f0;
+    hr {
         margin: 0;
-        width: 100%;
+        border: none;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .action-button-offset {
+        height: 15px;
     }
 
     .id-pill {
@@ -136,23 +121,22 @@ st.markdown(
     }
 
     .status-pill {
-        display: inline-flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        text-align: center !important;
-        width: max-content !important;
-        min-width: 110px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: fit-content;
         border-radius: 999px;
-        padding: 4px 14px;
+        padding: 4px 11px;
         font-size: 11px;
         font-weight: 900;
+        line-height: 1;
+        white-space: nowrap;
     }
 
     .status-active {
         background: #f0fdf4;
         border: 1px solid #bbf7d0;
         color: #15803d;
-        font-size: 15px;
     }
 
     .status-pm {
@@ -177,7 +161,6 @@ st.markdown(
         background: #eff6ff;
         border: 1px solid #bfdbfe;
         color: #1d4ed8;
-        font-size: 15px;
     }
 
     .empty-state {
@@ -197,68 +180,62 @@ st.markdown(
         box-shadow: 0 1px 3px rgba(15, 23, 42, .04);
     }
 
-    /* Fixed native widget framework alignments */
-    div[data-testid="stButton"] {
-        padding-top: 20px !important;
-    }
-
     div[data-testid="stButton"] > button {
         border-radius: 11px;
         font-weight: 900;
+        white-space: nowrap;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ==============================================================================
-# 🧠 CORE HELPER ALGORITHMS
-# ==============================================================================
-def display_status(unit):
-    if unit.get("location_type") == "Spare":
-        return "Spare/Storage"
-    return unit.get("status", "Unknown")
 
+# Maps display status text to the CSS class used by directory status pills.
 def status_class(status):
-    if status == "Active": return "status-active"
-    if status == "Needs PM": return "status-pm"
-    if status == "Maintenance Office": return "status-maint"
-    if status == "Doyle Shop": return "status-doyle"
+    if status == "Active":
+        return "status-active"
+    if status == "Needs PM":
+        return "status-pm"
+    if status == "Maintenance Office":
+        return "status-maint"
+    if status == "Doyle Shop":
+        return "status-doyle"
+    if status == "Spare/Storage":
+        return "status-spare"
     return "status-spare"
 
-def btu_from_model(model_specs):
-    model = (model_specs or "").lower()
-    if "ptac15" in model or "15" in model or "heavyduty" in model: return "15,000 BTU"
-    if "ptac12" in model or "12" in model or "standard" in model: return "12,000 BTU"
-    if "ptac09" in model or "9" in model or "compact" in model: return "9,000 BTU"
-    return "12,000 BTU"
 
-def next_ptac_id(units):
-    numbers = []
-    for unit in units:
-        full_id = unit.get("ptac_id", "")
-        num_part = full_id.replace("PTAC-", "")
-        if num_part.isdigit():
-            numbers.append(int(num_part))
-    next_num = max(numbers, default=0) + 1
-    return f"PTAC-{next_num:03d}"
-
+# Checks whether a unit should remain visible for the selected location filter.
 def matches_location_filter(unit, selected_filter):
     location_type = unit.get("location_type")
     status = unit.get("status")
-    if selected_filter == "All Locations": return True
-    if selected_filter == "Guest Rooms": return location_type == "Room"
-    if selected_filter == "Hallways": return location_type == "Hallway"
-    if selected_filter == "Elevator Closet": return location_type == "Elevator Closet"
-    if selected_filter == "Storage / Spares": return location_type == "Spare"
-    if selected_filter == "Maintenance Office": return status == "Maintenance Office" or location_type == "Maintenance Office"
-    if selected_filter == "Doyle Shop": return status == "Doyle Shop" or location_type == "Doyle Shop"
+
+    if selected_filter == "All Locations":
+        return True
+    if selected_filter == "Guest Rooms":
+        return location_type == "Room"
+    if selected_filter == "Hallways":
+        return location_type == "Hallway"
+    if selected_filter == "Elevator Closet":
+        return location_type == "Elevator Closet"
+    if selected_filter == "Storage / Spares":
+        return location_type == "Spare"
+    if selected_filter == "Maintenance Office":
+        return status == "Maintenance Office" or location_type == "Maintenance Office"
+    if selected_filter == "Doyle Shop":
+        return status == "Doyle Shop" or location_type == "Doyle Shop"
     return True
 
+
+# Checks whether a unit should remain visible for the selected status filter.
 def matches_status_filter(unit, selected_filter):
-    if selected_filter == "All Statuses": return True
+    if selected_filter == "All Statuses":
+        return True
     return display_status(unit) == selected_filter
 
+
+# Builds one lowercase searchable string from the fields the directory search bar should scan.
 def search_text(unit):
     values = [
         unit.get("ptac_id", ""),
@@ -270,15 +247,10 @@ def search_text(unit):
     ]
     return " ".join(values).lower()
 
+
 if "show_add_spare_form" not in st.session_state:
     st.session_state.show_add_spare_form = False
 
-if "directory_selected_unit_id" not in st.session_state:
-    st.session_state.directory_selected_unit_id = None
-
-# ==============================================================================
-# 🏗️ HEADER PRESENTATION
-# ==============================================================================
 title_cols = st.columns([3, 1])
 with title_cols[0]:
     st.markdown(
@@ -298,18 +270,23 @@ with title_cols[1]:
     if st.button("+ Register New Spare Unit", type="primary", use_container_width=True):
         st.session_state.show_add_spare_form = not st.session_state.show_add_spare_form
 
-# Ingestion Form Engine
+
 if st.session_state.show_add_spare_form:
     with st.form("add_spare_form", border=True):
         st.markdown("#### Register New Spare Unit")
-        st.caption("This inserts a new row into the existing `ptac_units` table.")
+        st.caption("This inserts a new row into the existing `ptac_units` table. It does not require a separate spares table.")
         new_id = next_ptac_id(all_units)
         st.code(f"Next ID: {new_id}", language="text")
 
         spare_cols = st.columns(3)
         model_specs = spare_cols[0].selectbox(
             "Model Specifications",
-            ["Amana PTAC12-Standard", "Amana PTAC15-Standard", "Amana PTAC15-HeavyDuty", "Amana PTAC09-Compact"],
+            [
+                "Amana PTAC12-Standard",
+                "Amana PTAC15-Standard",
+                "Amana PTAC15-HeavyDuty",
+                "Amana PTAC09-Compact",
+            ],
         )
         serial_number = spare_cols[1].text_input("Serial Number", placeholder="AMN-12345678")
         storage_location = spare_cols[2].text_input("Storage Location", value="5th Floor Storage Closet")
@@ -327,91 +304,114 @@ if st.session_state.show_add_spare_form:
                         "model_specs": model_specs,
                         "current_location_name": storage_location.strip() or "5th Floor Storage Closet",
                         "location_type": "Spare",
+                        # Supabase enum does not include Spare/Storage, so spare is tracked by location_type.
                         "status": "Active",
                     }
                 ).execute()
                 st.success(f"{new_id} was added as a spare unit.")
-                st.cache_data.clear()
                 st.rerun()
 
-# ==============================================================================
-# 🔍 FILTERS DECK PANEL
-# ==============================================================================
+
 st.markdown("<div class='filter-shell'>", unsafe_allow_html=True)
 filter_cols = st.columns([3.4, 1.1, 1.1])
-search_query = filter_cols[0].text_input("Search directory", placeholder="Type to search ID, Serial, Location or Model...", label_visibility="collapsed")
-location_filter = filter_cols[1].selectbox("Location Filter", ["All Locations", "Guest Rooms", "Hallways", "Elevator Closet", "Storage / Spares", "Maintenance Office", "Doyle Shop"], label_visibility="collapsed")
-status_filter = filter_cols[2].selectbox("Status Filter", ["All Statuses", "Active", "Needs PM", "Maintenance Office", "Doyle Shop", "Spare/Storage"], label_visibility="collapsed")
+search_query = filter_cols[0].text_input(
+    "Search directory",
+    placeholder="Type to search ID, Serial, Location or Model...",
+    label_visibility="collapsed",
+)
+location_filter = filter_cols[1].selectbox(
+    "Location Filter",
+    [
+        "All Locations",
+        "Guest Rooms",
+        "Hallways",
+        "Elevator Closet",
+        "Storage / Spares",
+        "Maintenance Office",
+        "Doyle Shop",
+    ],
+    label_visibility="collapsed",
+)
+status_filter = filter_cols[2].selectbox(
+    "Status Filter",
+    ["All Statuses", "Active", "Needs PM", "Maintenance Office", "Doyle Shop", "Spare/Storage"],
+    label_visibility="collapsed",
+)
 st.markdown("</div>", unsafe_allow_html=True)
+
 
 filtered_units = []
 query = search_query.strip().lower()
 for unit in all_units:
-    if query and query not in search_text(unit): continue
-    if not matches_location_filter(unit, location_filter): continue
-    if not matches_status_filter(unit, status_filter): continue
+    if query and query not in search_text(unit):
+        continue
+    if not matches_location_filter(unit, location_filter):
+        continue
+    if not matches_status_filter(unit, status_filter):
+        continue
     filtered_units.append(unit)
 
-# ==============================================================================
-# 📊 HYBRID PTAC DATA GRID SHEET
-# ==============================================================================
+
 st.markdown("<div class='directory-table'>", unsafe_allow_html=True)
-
-# Adjusted custom column width list to comfortably contain your centered entries
-column_ratios = [1, 2.4, 1.5, 1.8, 1.5, 1.8]
-header_cols = st.columns(column_ratios)
-
-header_cols[0].markdown("<div class='directory-header directory-header-left'>ID</div>", unsafe_allow_html=True)
-header_cols[1].markdown("<div class='directory-header'>SPECS & SERIAL</div>", unsafe_allow_html=True)
-header_cols[2].markdown("<div class='directory-header'>LOCATION</div>", unsafe_allow_html=True)
-header_cols[3].markdown("<div class='directory-header'>OPERATIONAL STATUS</div>", unsafe_allow_html=True)
-header_cols[4].markdown("<div class='directory-header'>LAST PM CHECK</div>", unsafe_allow_html=True)
-header_cols[5].markdown("<div class='directory-header'>ACTIONS</div>", unsafe_allow_html=True)
+header_cols = st.columns([1.0, 2.3, 1.9, 1.8, 1.4, 1.1])
+headers = ["ID", "SPECS & SERIAL", "LOCATION", "OPERATIONAL STATUS", "LAST PM CHECK", "ACTIONS"]
+for col, header in zip(header_cols, headers):
+    col.markdown(f"<div class='directory-header'>{header}</div>", unsafe_allow_html=True)
 
 if not filtered_units:
     st.markdown("<div class='empty-state'>No PTAC units matched those search criteria.</div>", unsafe_allow_html=True)
 
-for index, unit in enumerate(filtered_units):
+for unit in filtered_units:
     status = display_status(unit)
-    row_cols = st.columns(column_ratios)
+    row_cols = st.columns([1.0, 2.3, 1.9, 1.8, 1.4, 1.1])
 
-    row_cols[0].markdown(f"<div class='directory-row'><span class='id-pill'>{unit.get('ptac_id', '')}</span></div>", unsafe_allow_html=True)
-    
-    # Applied alignment centering formatting class modifiers to columns 1 and 2
-    row_cols[1].markdown(f"<div class='directory-row directory-row-center'><div class='primary-text'>{unit.get('model_specs', '')}</div><div class='secondary-text'>{btu_from_model(unit.get('model_specs'))} · S/N: {unit.get('serial_number', '')}</div></div>", unsafe_allow_html=True)
-    row_cols[2].markdown(f"<div class='directory-row directory-row-center'><div class='primary-text'>{unit.get('current_location_name', '')}</div><div class='secondary-text'>{unit.get('location_type', '')}</div></div>", unsafe_allow_html=True)
-    
-    row_cols[3].markdown(f"<div class='directory-row directory-row-center'><span class='status-pill {status_class(status)}'>{status}</span></div>", unsafe_allow_html=True)
-    row_cols[4].markdown(f"<div class='directory-row directory-row-center'><div class='primary-text' style='font-size:15px;color:#64748b;'>{unit.get('last_pm_date') or 'Not logged'}</div></div>", unsafe_allow_html=True)
-    
+    row_cols[0].markdown(
+        f"""
+        <div class='directory-row'>
+          <span class='id-pill'>{unit.get("ptac_id", "")}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    row_cols[1].markdown(
+        f"""
+        <div class='directory-row'>
+          <div class='primary-text'>{unit.get("model_specs", "")}</div>
+          <div class='secondary-text'>{btu_from_model(unit.get("model_specs"))} · S/N: {unit.get("serial_number", "")}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    row_cols[2].markdown(
+        f"""
+        <div class='directory-row'>
+          <div class='primary-text'>{unit.get("current_location_name", "")}</div>
+          <div class='secondary-text'>{unit.get("location_type", "")}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    row_cols[3].markdown(
+        f"""
+        <div class='directory-row'>
+          <span class='status-pill {status_class(status)}'>{status}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    row_cols[4].markdown(
+        f"""
+        <div class='directory-row'>
+          <div class='primary-text' style='font-size:13px;color:#64748b;'>{unit.get("last_pm_date") or "Not logged"}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     with row_cols[5]:
-        if st.button("View / Action", key=f"view_{unit.get('ptac_id')}", use_container_width=True):
-            st.session_state.directory_selected_unit_id = unit.get("ptac_id")
-
-    # Injects horizontal border line items between rows
-    if index < len(filtered_units) - 1:
-        st.markdown("<hr class='directory-separator'>", unsafe_allow_html=True)
+        st.markdown("<div class='action-button-offset'></div>", unsafe_allow_html=True)
+        if st.button("View / Action", key=f"view_{unit.get('ptac_id')}"):
+            st.session_state.selected_ptac_id = unit.get("ptac_id")
+            st.rerun()
+    st.divider()
 
 st.markdown("</div>", unsafe_allow_html=True)
-
-# ==============================================================================
-# 🛠️ BOTTOM PANEL CONSOLE DRAWER
-# ==============================================================================
-#
-# if st.session_state.directory_selected_unit_id:
-#     selected_unit = None
-#     for unit in all_units:
-#         if unit.get("ptac_id") == st.session_state.directory_selected_unit_id:
-#             selected_unit = unit
-#             break
-
-#     if selected_unit:
-#         st.markdown("<div class='action-panel'>", unsafe_allow_html=True)
-#         st.markdown(f"#### {selected_unit.get('ptac_id')} Action Panel")
-#         st.caption(f"{selected_unit.get('model_specs')} · S/N {selected_unit.get('serial_number')} · {selected_unit.get('current_location_name')}")
-
-#         action_cols = st.columns(3)
-#         action_cols[0].metric("Status", display_status(selected_unit))
-#         action_cols[1].metric("Location Type", selected_unit.get("location_type", ""))
-#         action_cols[2].metric("Last PM", selected_unit.get("last_pm_date") or "Not logged")
-#         st.markdown("</div>", unsafe_allow_html=True)

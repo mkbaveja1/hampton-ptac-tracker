@@ -1,12 +1,23 @@
 import streamlit as st
+from urllib.parse import quote
 
-supabase = st.session_state.supabase
+from views._shared import (
+    FLOORS,
+    ROOM_SUFFIXES,
+    dashboard_status_style,
+    display_status,
+    fetch_units,
+    is_at_maintenance_office,
+    short_btu_from_model,
+)
+from views.unit_detail import get_selected_ptac_id, render_unit_detail
 
-#pull all PTAC units
-all_units_response = supabase.table("ptac_units").select(
-    "ptac_id, current_location_name, status, location_type"
-).execute()
-all_units = all_units_response.data or []
+# Pulls the live PTAC inventory from Supabase through the shared data helper.
+all_units = fetch_units()
+
+if get_selected_ptac_id():
+    render_unit_detail()
+    st.stop()
 
 #KPI counts
 total_count = len(all_units)
@@ -23,7 +34,7 @@ for u in all_units:
 
 maint_office_total = 0
 for u in all_units:
-    if u.get("status") == "Maintenance Office":
+    if is_at_maintenance_office(u):
         maint_office_total += 1
 
 doyle_total = 0
@@ -180,15 +191,15 @@ st.markdown(
     .floor-header h3 {
         margin: 0;
         color: #0f172a;
-        font-size: 24px;
-        font-weight: 980;
+        font-size: 20px;
+        font-weight: 950;
         letter-spacing: -0.01em;
     }
 
     .floor-header span {
         color: #94a3b8;
-        font-size: 15px;
-        font-weight: 920;
+        font-size: 10px;
+        font-weight: 900;
         text-transform: uppercase;
         letter-spacing: .06em;
     }
@@ -214,6 +225,13 @@ st.markdown(
         justify-content: center;
         transition: transform .15s ease, box-shadow .15s ease;
         cursor: pointer;
+        text-decoration: none;
+    }
+
+    a.room-cell-link {
+        text-decoration: none !important;
+        color: inherit !important;
+        display: block;
     }
 
     .room-cell:hover {
@@ -332,25 +350,7 @@ st.markdown(
 # Lookup to map room # directly to status
 loc_unit = {u.get("current_location_name"): u for u in all_units}
 
-STATUS_STYLES = {
-    "Active": "background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;",
-    "Needs PM": "background:#fffbeb;border:1px solid #fde68a;color:#92400e;animation:pmPulse 2s infinite ease-in-out;",
-    "Maintenance Office": "background:#f5f3ff;border:1px solid #ddd6fe;color:#5b21b6;",
-    "Doyle Shop": "background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;",
-    "Spare/Storage": "background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;",
-    "Unknown": "background:#f8fafc;border:1px dashed #cbd5e1;color:#64748b;",
-}
-
-def display_status(unit):
-    if not unit:
-        return "Unknown"
-    if unit.get("location_type") == "Spare":
-        return "Spare/Storage"
-    return unit.get("status", "Unknown")
-
-def cell_style(status):
-    return STATUS_STYLES.get(status, STATUS_STYLES["Unknown"])
-
+# Returns the short BTU text shown in each dashboard tile.
 def btu_label(unit):
     if not unit:
         return ""
@@ -359,36 +359,39 @@ def btu_label(unit):
         return "15K BTU"
     if location_type == "Elevator Closet":
         return "9K BTU"
-    return "12K BTU"
+    return short_btu_from_model(unit.get("model_specs"))
 
+
+# Builds the HTML for one dashboard tile and wraps real units in a detail-page link.
 def make_cell(label, unit, display_label=None):
     status = display_status(unit)
     ptac_id = unit.get("ptac_id", "No unit") if unit else "No unit"
     main_label = display_label or label
     btu = btu_label(unit)
-    return (
-        f"<div class='room-cell' style='{cell_style(status)}' title='{label} - {status} - {ptac_id}'>"
+    cell_html = (
+        f"<div class='room-cell' style='{dashboard_status_style(status)}' title='{label} - {status} - {ptac_id}'>"
         f"<small>{ptac_id}</small>"
         f"<span class='cell-main-label'>{main_label}</span>"
         f"<span class='cell-btu'>{btu}</span>"
         f"</div>"
     )
+    if not unit:
+        return cell_html
+    return f"<a class='room-cell-link' href='?unit_detail={quote(ptac_id)}' target='_self'>{cell_html}</a>"
 
 
 # Making floor grid
-ROOMS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29]
-
-for floor in range(2, 7):
+for floor in FLOORS:
     grid_html = f"""
     <div class='floor-card'>
         <div class='floor-header'>
-            <h3 style='font-size: 24px; font-weight: 800; margin: 0;'>Floor {floor}</h3>
+            <h3>Floor {floor}</h3>
             <span>Dynamic Control Matrix</span>
         </div>
         <div class='floor-row'>
     """
 
-    for room in ROOMS:
+    for room in ROOM_SUFFIXES:
         rnum = f"{floor}{room:02d}"
         if room == 11:
             #two units
@@ -406,10 +409,10 @@ for floor in range(2, 7):
     """
     st.markdown(grid_html, unsafe_allow_html=True)
 
-
+# Sorts hallway units by floor number so corridors render Floor 2 through Floor 6.
 def hallway_sort_key(unit):
     location = unit.get("current_location_name", "")
-    for floor in range(2, 7):
+    for floor in FLOORS:
         if f"Floor {floor}" in location:
             return floor
     return 99
@@ -425,7 +428,7 @@ hallway_units = sorted(hallway_units, key=hallway_sort_key)
 support_groups = [
     ("Corridors/Hallways", hallway_units),
     ("Elevator Closet", [u for u in all_units if u.get("location_type") == "Elevator Closet"]),
-    ("Maintenance Office Onsite", [u for u in all_units if u.get("status") == "Maintenance Office"]),
+    ("Maintenance Office Onsite", [u for u in all_units if is_at_maintenance_office(u)]),
     ("Doyle Repair Shop", [u for u in all_units if u.get("status") == "Doyle Shop"]),
     ("Spare Storage Closet", [u for u in all_units if u.get("location_type") == "Spare"]),
 ]
