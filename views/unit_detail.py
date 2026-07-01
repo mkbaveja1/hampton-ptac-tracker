@@ -151,27 +151,32 @@ def build_history_markup(events):
     if not events:
         body = "<p style='color:#94a3b8;font-size:13px;font-weight:600;margin:0;'>No history found for this unit yet.</p>"
     else:
-        body = ""
+        parts = []
         for event in events:
-            body += f"""
-            <div class='history-item'>
-              <span class='history-dot'></span>
-              <span class='history-title'>{escape(event.get('title') or '')}</span>
-              <span class='history-date'>{escape(str(event.get('date') or '')[:10])}</span>
-              <div class='history-loc'>Location: {escape(event.get('location') or 'Unknown')}</div>
-              <div class='history-notes'>"{escape(event.get('notes') or '')}"</div>
-            </div>
-            """
+            title = escape(event.get("title") or "")
+            date_str = escape(str(event.get("date") or "")[:10])
+            location = escape(event.get("location") or "Unknown")
+            notes = escape(event.get("notes") or "")
+            parts.append(
+                "<div class='history-item'>"
+                "<span class='history-dot'></span>"
+                f"<span class='history-title'>{title}</span>"
+                f"<span class='history-date'>{date_str}</span>"
+                f"<div class='history-loc'>Location: {location}</div>"
+                f"<div class='history-notes'>\"{notes}\"</div>"
+                "</div>"
+            )
+        body = "".join(parts)
 
-    return f"""
-    <div class='history-card'>
-      <div class='history-head'>
-        <h3>Location History & Maintenance Feed</h3>
-        <span>Newest First</span>
-      </div>
-      {body}
-    </div>
-    """
+    return (
+        "<div class='history-card'>"
+        "<div class='history-head'>"
+        "<h3>Location History &amp; Maintenance Feed</h3>"
+        "<span>Newest First</span>"
+        "</div>"
+        f"{body}"
+        "</div>"
+    )
 
 
 # Injects the CSS that gives the hidden unit detail screen its card/timeline layout.
