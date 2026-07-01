@@ -1,4 +1,5 @@
 from datetime import date
+from html import escape
 from urllib.parse import quote
 
 import streamlit as st
@@ -143,6 +144,34 @@ def fetch_history(unit):
 
     events.sort(key=lambda event: str(event.get("date") or ""), reverse=True)
     return events
+
+
+# Builds the full history card HTML in one block so Streamlit does not split the container.
+def build_history_markup(events):
+    if not events:
+        body = "<p style='color:#94a3b8;font-size:13px;font-weight:600;margin:0;'>No history found for this unit yet.</p>"
+    else:
+        body = ""
+        for event in events:
+            body += f"""
+            <div class='history-item'>
+              <span class='history-dot'></span>
+              <span class='history-title'>{escape(event.get('title') or '')}</span>
+              <span class='history-date'>{escape(str(event.get('date') or '')[:10])}</span>
+              <div class='history-loc'>Location: {escape(event.get('location') or 'Unknown')}</div>
+              <div class='history-notes'>"{escape(event.get('notes') or '')}"</div>
+            </div>
+            """
+
+    return f"""
+    <div class='history-card'>
+      <div class='history-head'>
+        <h3>Location History & Maintenance Feed</h3>
+        <span>Newest First</span>
+      </div>
+      {body}
+    </div>
+    """
 
 
 # Injects the CSS that gives the hidden unit detail screen its card/timeline layout.
@@ -588,29 +617,4 @@ def render_unit_detail(ptac_id=None):
                     repair_dialog(unit)
 
     events = fetch_history(unit)
-    st.markdown(
-        """
-        <div class='history-card'>
-          <div class='history-head'>
-            <h3>Location History & Maintenance Feed</h3>
-            <span>Newest First</span>
-          </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    if not events:
-        st.info("No history found for this unit yet.")
-    for event in events:
-        st.markdown(
-            f"""
-            <div class='history-item'>
-              <span class='history-dot'></span>
-              <span class='history-title'>{event.get('title')}</span>
-              <span class='history-date'>{str(event.get('date') or '')[:10]}</span>
-              <div class='history-loc'>Location: {event.get('location') or 'Unknown'}</div>
-              <div class='history-notes'>"{event.get('notes') or ''}"</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown(build_history_markup(events), unsafe_allow_html=True)
