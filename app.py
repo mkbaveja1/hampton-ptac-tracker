@@ -1,14 +1,51 @@
 import streamlit as st
-import pandas as pd
 from supabase import create_client, Client
 
-st.set_page_config(page_title = "PTAC Pro Tracker Console", page_icon = "/Users/mannatbaveja/hampton-ptac-tracker/hamptonlogo.png", layout = "wide")
+st.set_page_config(page_title="PTAC Pro Tracker Console", page_icon="🏨", layout="wide")
+
+
+def load_supabase_secrets():
+    try:
+        supabase_secrets = st.secrets["supabase"]
+        url = supabase_secrets["url"]
+        key = supabase_secrets["key"]
+    except (KeyError, TypeError):
+        st.error("Supabase secrets are not configured.")
+        st.markdown(
+            """
+            Add secrets in **Streamlit Community Cloud → Manage app → Settings → Secrets**
+            (or in local `.streamlit/secrets.toml`):
+
+            ```toml
+            [supabase]
+            url = "https://YOUR-PROJECT.supabase.co"
+            key = "YOUR_SUPABASE_ANON_OR_SERVICE_KEY"
+
+            [app]
+            base_url = "https://YOUR-APP-NAME.streamlit.app"
+            ```
+
+            After saving secrets, reboot the app from the Cloud dashboard.
+            """
+        )
+        st.stop()
+
+    if not url or not key:
+        st.error("Supabase `url` and `key` must both be set in secrets.")
+        st.stop()
+
+    return url, key
+
 
 if "supabase" not in st.session_state:
-    url: str = st.secrets["supabase"]["url"]
-    key: str = st.secrets["supabase"]["key"]
-    supabase: Client = create_client(url, key)
+    supabase_url, supabase_key = load_supabase_secrets()
+    supabase: Client = create_client(supabase_url, supabase_key)
     st.session_state.supabase = supabase
+
+# Deep links from printed QR codes: ?unit_detail=PTAC-###
+_qr_unit_id = st.query_params.get("unit_detail")
+if _qr_unit_id:
+    st.session_state.selected_ptac_id = _qr_unit_id
 
 
 #moving navigation to the top
@@ -89,5 +126,3 @@ target_page_obj = page_map[st.session_state.current_category][st.session_state.c
 
 pg = st.navigation([target_page_obj], position="hidden")
 pg.run()
-
-

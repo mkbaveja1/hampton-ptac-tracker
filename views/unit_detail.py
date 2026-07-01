@@ -534,8 +534,12 @@ def render_unit_detail(ptac_id=None):
             """,
             unsafe_allow_html=True,
         )
-
-    with right:
+        st.caption(f"QR scan link: {detail_url}")
+        if detail_url.startswith("http://localhost"):
+            st.warning(
+                "This QR link points to localhost and will not work on a phone. "
+                "Open the app on Streamlit Cloud and reprint labels, or set `[app].base_url` in secrets."
+            )
         with st.container(border=True):
             st.markdown("<div class='detail-card-title'>Register New Custody/Maintenance Actions</div>", unsafe_allow_html=True)
             action_cols = st.columns(2)

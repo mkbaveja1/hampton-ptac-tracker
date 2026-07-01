@@ -18,6 +18,17 @@ def get_supabase():
 
 # Returns the public URL the app should use when generating QR-code links.
 def app_base_url():
+    # Use the live host when the app is already running on a real deployment.
+    # This prevents QR codes from pointing at localhost or a stale secrets value.
+    try:
+        host = (st.context.headers.get("host") or "").strip()
+        protocol = (st.context.headers.get("x-forwarded-proto") or "https").strip()
+        local_hosts = {"localhost", "localhost:8501", "127.0.0.1", "127.0.0.1:8501"}
+        if host and host not in local_hosts:
+            return f"{protocol}://{host}".rstrip("/")
+    except Exception:
+        pass
+
     try:
         configured_url = st.secrets["app"]["base_url"]
         if configured_url:
@@ -29,14 +40,6 @@ def app_base_url():
         configured_url = st.secrets["app_base_url"]
         if configured_url:
             return configured_url.rstrip("/")
-    except Exception:
-        pass
-
-    try:
-        host = st.context.headers.get("host")
-        protocol = st.context.headers.get("x-forwarded-proto", "http")
-        if host:
-            return f"{protocol}://{host}".rstrip("/")
     except Exception:
         pass
 
